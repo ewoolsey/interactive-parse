@@ -116,6 +116,7 @@ fn get_subschema(
     // First we check the one_of field.
     if let Some(schema_vec) = subschema.one_of {
         let mut options = Vec::new();
+        println!("{:#?}", schema_vec);
         for schema in &schema_vec {
             let Schema::Object(schema_object) = schema else {
                                 panic!("invalid schema");
@@ -305,6 +306,13 @@ mod tests {
         pub option_int: Option<i32>,
     }
 
+    /// Doc comment on struct
+    #[derive(JsonSchema, Serialize, Deserialize, Debug)]
+    pub struct MyStruct3 {
+        /// Doc comment on field
+        pub option_int: Option<f64>,
+    }
+
     /// Doc comment on enum
     #[derive(JsonSchema, Serialize, Deserialize, Debug)]
     pub enum MyEnum {
@@ -317,12 +325,25 @@ mod tests {
         },
     }
 
+    /// Doc comment on enum
+    #[derive(JsonSchema, Serialize, Deserialize, Debug)]
+    pub enum TestEnum {
+        /// Executes the price oracle contract
+        PriceOracle { execute: MyStruct },
+        /// Executes the interest model contract
+        InterestModel { execute: MyStruct2 },
+        /// Executes the market contract
+        Market { execute: MyStruct3 },
+        /// Executes the liquidation contract
+        FlashLoanReceiver { execute: MyStruct2 },
+    }
+
     #[test]
     fn test() {
         let root_schema = schema_for!(MyStruct);
         println!("{:#?}", &root_schema);
         //println!("{:#?}", &root_schema.definitions);
-        let my_struct = MyStruct::interactive_parse().unwrap();
+        let my_struct = TestEnum::interactive_parse().unwrap();
         dbg!(my_struct);
 
         //println!("{:?}", schema.definitions)
