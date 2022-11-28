@@ -1,7 +1,15 @@
 [package]
-name = "schemars-interactive"
+name = "interactive-parse"
 version = "0.1.0"
 edition = "2021"
+authors = ["Eric Woolsey<ewoolsey@ualberta.ca>"]
+license = "MIT"
+description = "A work in progress interactive parser for JsonSchema types."
+repository = "https://github.com/ewoolsey/interactive-parse"
+keywords = ["JsonSchema", "parser", "interactive", "cli", "shell"]
+readme = "README.md"
+
+[lib]
 
 [dependencies]
 schemars = "0.8.8"
