@@ -116,6 +116,7 @@ fn get_subschema(
     // First we check the one_of field.
     if let Some(schema_vec) = subschema.one_of {
         let mut options = Vec::new();
+        println!("{:#?}", definitions);
         println!("{:#?}", schema_vec);
         for schema in &schema_vec {
             let Schema::Object(schema_object) = schema else {
@@ -179,7 +180,6 @@ fn get_subschema(
             Ok(Value::Null)
         }
     } else {
-        dbg!(subschema);
         panic!("invalid schema");
     }
 }
