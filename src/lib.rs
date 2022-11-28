@@ -12,12 +12,11 @@ pub mod traits;
 
 pub fn parse_schema(
     definitions: &BTreeMap<String, Schema>,
+    title: &Option<String>,
     name: String,
-    title: Option<String>,
     schema: SchemaObject,
 ) -> SchemaResult<Value> {
     let description = get_description(&schema);
-    let title_str = get_title_str(title);
     match schema.instance_type.clone() {
         Some(SingleOrVec::Single(instance_type)) => get_single_instance(
             definitions,
@@ -25,6 +24,7 @@ pub fn parse_schema(
             schema.object,
             schema.subschemas,
             instance_type,
+            title,
             name,
             description,
         ),
@@ -34,7 +34,7 @@ pub fn parse_schema(
             let instance_type =
                 Box::new(vec.into_iter().find(|x| x != &InstanceType::Null).unwrap());
             if Confirm::new("Add optional value?")
-                .with_help_message(format!("{}{}", title_str, name).as_str())
+                .with_help_message(format!("{}{}", get_title_str(title), name).as_str())
                 .prompt()?
             {
                 get_single_instance(
@@ -43,6 +43,7 @@ pub fn parse_schema(
                     schema.object,
                     schema.subschemas,
                     instance_type,
+                    title,
                     name,
                     description,
                 )
@@ -58,22 +59,17 @@ pub fn parse_schema(
                 let Schema::Object(schema) = schema else {
                     panic!("invalid schema");
                 };
-                parse_schema(
-                    definitions,
-                    name,
-                    Some(reference.to_string()),
-                    schema.clone(),
-                )
+                parse_schema(definitions, title, name, schema.clone())
             }
             // Or it could be a subschema
             else {
-                get_subschema(definitions, name, schema.subschemas, description)
+                get_subschema(definitions, title, name, schema.subschemas, description)
             }
         }
     }
 }
 
-fn get_title_str(title: Option<String>) -> String {
+fn get_title_str(title: &Option<String>) -> String {
     let mut title_str = String::new();
     if let Some(title) = title {
         title_str.push_str(format!("<{}> ", title).as_str());
@@ -104,6 +100,7 @@ fn get_single_instance(
     object_info: Option<Box<ObjectValidation>>,
     subschema: Option<Box<SubschemaValidation>>,
     instance: Box<InstanceType>,
+    title: &Option<String>,
     name: String,
     description: String,
 ) -> SchemaResult<Value> {
@@ -112,18 +109,19 @@ fn get_single_instance(
         InstanceType::Number => get_num(name, description),
         InstanceType::Integer => get_int(name, description),
         InstanceType::Boolean => get_bool(name, description),
-        InstanceType::Array => get_array(definitions, array_info, name, description),
-        InstanceType::Object => get_object(definitions, object_info, name, description),
+        InstanceType::Array => get_array(definitions, array_info, title, name, description),
+        InstanceType::Object => get_object(definitions, object_info, title, name, description),
         InstanceType::Null => {
             // This represents an optional enum
             // Likely the subschema will have info here.
-            get_subschema(definitions, name, subschema, description)
+            get_subschema(definitions, title, name, subschema, description)
         }
     }
 }
 
 fn get_subschema(
     definitions: &BTreeMap<String, Schema>,
+    title: &Option<String>,
     name: String,
     subschema: Option<Box<SubschemaValidation>>,
     description: String,
@@ -153,7 +151,7 @@ fn get_subschema(
         let Schema::Object(object) = schema_vec[position].clone() else {
                             panic!("invalid schema");
                         };
-        Ok(parse_schema(definitions, name, None, object)?)
+        Ok(parse_schema(definitions, title, name, object)?)
     }
     // Next check the all_of field.
     else if let Some(schema_vec) = subschema.all_of {
@@ -162,7 +160,7 @@ fn get_subschema(
             let Schema::Object(object) = schema else {
                             panic!("invalid schema");
                         };
-            values.push(parse_schema(definitions, name.clone(), None, object)?)
+            values.push(parse_schema(definitions, title, name.clone(), object)?)
         }
         match values.len() {
             1 => Ok(values.pop().unwrap()),
@@ -189,7 +187,7 @@ fn get_subschema(
             let Schema::Object(object) = non_null else {
                             panic!("invalid schema");
                         };
-            parse_schema(definitions, name, None, object)
+            parse_schema(definitions, title, name, object)
         } else {
             Ok(Value::Null)
         }
@@ -227,6 +225,7 @@ fn get_bool(name: String, description: String) -> SchemaResult<Value> {
 fn get_array(
     definitions: &BTreeMap<String, Schema>,
     array_info: Option<Box<ArrayValidation>>,
+    title: &Option<String>,
     name: String,
     description: String,
 ) -> SchemaResult<Value> {
@@ -259,8 +258,8 @@ fn get_array(
 
         array.push(parse_schema(
             definitions,
+            title,
             format!("{}.{}", name.clone(), i),
-            None,
             object.clone(),
         )?);
     }
@@ -270,6 +269,7 @@ fn get_array(
 fn get_object(
     definitions: &BTreeMap<String, Schema>,
     object_info: Option<Box<ObjectValidation>>,
+    title: &Option<String>,
     _name: String,
     _description: String,
 ) -> SchemaResult<Value> {
@@ -282,7 +282,7 @@ fn get_object(
                             panic!("invalid schema");
                         };
 
-            let object = parse_schema(definitions, name.to_string(), None, schema_object)?;
+            let object = parse_schema(definitions, title, name.to_string(), schema_object)?;
             Ok((name, object))
         })
         .collect::<SchemaResult<Map<String, Value>>>()?;
