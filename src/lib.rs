@@ -13,10 +13,11 @@ pub mod traits;
 pub fn parse_schema(
     definitions: &BTreeMap<String, Schema>,
     name: String,
-    val_type: Option<String>,
+    title: Option<String>,
     schema: SchemaObject,
 ) -> SchemaResult<Value> {
     let description = get_description(&schema);
+    let title_str = get_title_str(title);
     match schema.instance_type.clone() {
         Some(SingleOrVec::Single(instance_type)) => get_single_instance(
             definitions,
@@ -33,7 +34,7 @@ pub fn parse_schema(
             let instance_type =
                 Box::new(vec.into_iter().find(|x| x != &InstanceType::Null).unwrap());
             if Confirm::new("Add optional value?")
-                .with_help_message(name.as_str())
+                .with_help_message(format!("{}{}", title_str, name).as_str())
                 .prompt()?
             {
                 get_single_instance(
@@ -72,10 +73,25 @@ pub fn parse_schema(
     }
 }
 
+fn get_title_str(title: Option<String>) -> String {
+    let mut title_str = String::new();
+    if let Some(title) = title {
+        title_str.push_str(format!("<{}> ", title).as_str());
+    }
+    title_str
+}
+
 fn get_description(schema: &SchemaObject) -> String {
     match &schema.metadata {
         Some(metadata) => match &metadata.description {
-            Some(description) => format!(": {}", description),
+            Some(description_ref) => {
+                let mut description = description_ref.clone();
+                if description.len() > 60 {
+                    description.truncate(60);
+                    description.push_str("...");
+                }
+                format!(": {}", description)
+            }
             None => String::default(),
         },
         None => String::default(),
@@ -116,8 +132,6 @@ fn get_subschema(
     // First we check the one_of field.
     if let Some(schema_vec) = subschema.one_of {
         let mut options = Vec::new();
-        println!("{:#?}", definitions);
-        println!("{:#?}", schema_vec);
         for schema in &schema_vec {
             let Schema::Object(schema_object) = schema else {
                                 panic!("invalid schema");

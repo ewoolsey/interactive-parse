@@ -17,12 +17,11 @@ where
     fn interactive_parse() -> SchemaResult<Self> {
         let root_schema = schema_for!(T);
         let mut name = String::default();
+        let mut title = None;
         if let Some(metadata) = &root_schema.schema.metadata {
-            if let Some(title) = &metadata.title {
-                name = title.clone();
-            }
+            title = metadata.title.clone();
         }
-        let value = parse_schema(&root_schema.definitions, name, None, root_schema.schema)?;
+        let value = parse_schema(&root_schema.definitions, name, title, root_schema.schema)?;
         let my_struct = serde_json::from_value::<T>(value)?;
         Ok(my_struct)
     }
