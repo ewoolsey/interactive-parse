@@ -276,7 +276,7 @@ fn get_object(
 
 #[cfg(test)]
 mod tests {
-    use schemars::JsonSchema;
+    use schemars::{schema_for, JsonSchema};
     use serde::{Deserialize, Serialize};
 
     use crate::traits::InteractiveParseObj;
@@ -319,7 +319,8 @@ mod tests {
 
     #[test]
     fn test() {
-        // println!("{:#?}", &root_schema.schema);
+        let root_schema = schema_for!(MyStruct);
+        println!("{:#?}", &root_schema);
         //println!("{:#?}", &root_schema.definitions);
         let my_struct = MyStruct::interactive_parse().unwrap();
         dbg!(my_struct);
