@@ -12,7 +12,7 @@ pub mod traits;
 
 pub fn parse_schema(
     definitions: &BTreeMap<String, Schema>,
-    title: &Option<String>,
+    title: Option<String>,
     name: String,
     schema: SchemaObject,
 ) -> SchemaResult<Value> {
@@ -34,7 +34,7 @@ pub fn parse_schema(
             let instance_type =
                 Box::new(vec.into_iter().find(|x| x != &InstanceType::Null).unwrap());
             if Confirm::new("Add optional value?")
-                .with_help_message(format!("{}{}", get_title_str(title), name).as_str())
+                .with_help_message(format!("{}{}", get_title_str(&title), name).as_str())
                 .prompt()?
             {
                 get_single_instance(
@@ -59,7 +59,12 @@ pub fn parse_schema(
                 let Schema::Object(schema) = schema else {
                     panic!("invalid schema");
                 };
-                parse_schema(definitions, title, name, schema.clone())
+                parse_schema(
+                    definitions,
+                    Some(reference.to_string()),
+                    name,
+                    schema.clone(),
+                )
             }
             // Or it could be a subschema
             else {
@@ -67,6 +72,13 @@ pub fn parse_schema(
             }
         }
     }
+}
+
+fn update_title(mut title: Option<String>, schema: &SchemaObject) -> Option<String> {
+    if let Some(metadata) = &schema.metadata {
+        title = metadata.title.clone();
+    }
+    title
 }
 
 fn get_title_str(title: &Option<String>) -> String {
@@ -94,13 +106,15 @@ fn get_description(schema: &SchemaObject) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::boxed_local)]
 fn get_single_instance(
     definitions: &BTreeMap<String, Schema>,
     array_info: Option<Box<ArrayValidation>>,
     object_info: Option<Box<ObjectValidation>>,
     subschema: Option<Box<SubschemaValidation>>,
     instance: Box<InstanceType>,
-    title: &Option<String>,
+    title: Option<String>,
     name: String,
     description: String,
 ) -> SchemaResult<Value> {
@@ -121,7 +135,7 @@ fn get_single_instance(
 
 fn get_subschema(
     definitions: &BTreeMap<String, Schema>,
-    title: &Option<String>,
+    title: Option<String>,
     name: String,
     subschema: Option<Box<SubschemaValidation>>,
     description: String,
@@ -144,13 +158,16 @@ fn get_subschema(
                 .0;
             options.push(name);
         }
-        let option = Select::new(name.as_str(), options.clone())
-            .with_help_message(format!("{}{}", name, description.as_str()).as_str())
+        let option = Select::new("Select one:", options.clone())
+            .with_help_message(
+                format!("{}{}{}", get_title_str(&title), name, description.as_str()).as_str(),
+            )
             .prompt()?;
         let position = options.iter().position(|x| x == &option).unwrap();
         let Schema::Object(object) = schema_vec[position].clone() else {
                             panic!("invalid schema");
                         };
+        let title = update_title(title, &object);
         Ok(parse_schema(definitions, title, name, object)?)
     }
     // Next check the all_of field.
@@ -160,7 +177,13 @@ fn get_subschema(
             let Schema::Object(object) = schema else {
                             panic!("invalid schema");
                         };
-            values.push(parse_schema(definitions, title, name.clone(), object)?)
+            let title = update_title(title.clone(), &object);
+            values.push(parse_schema(
+                definitions,
+                title.clone(),
+                name.clone(),
+                object,
+            )?)
         }
         match values.len() {
             1 => Ok(values.pop().unwrap()),
@@ -179,14 +202,15 @@ fn get_subschema(
                 object.instance_type != Some(SingleOrVec::Single(Box::new(InstanceType::Null)))
             })
             .unwrap();
-
-        if Confirm::new("Add optional value?")
-            .with_help_message(name.as_str())
-            .prompt()?
-        {
-            let Schema::Object(object) = non_null else {
+        let Schema::Object(object) = non_null else {
                             panic!("invalid schema");
                         };
+        let title = update_title(title, &object);
+
+        if Confirm::new("Add optional value?")
+            .with_help_message(format!("{}{}", get_title_str(&title), name).as_str())
+            .prompt()?
+        {
             parse_schema(definitions, title, name, object)
         } else {
             Ok(Value::Null)
@@ -225,7 +249,7 @@ fn get_bool(name: String, description: String) -> SchemaResult<Value> {
 fn get_array(
     definitions: &BTreeMap<String, Schema>,
     array_info: Option<Box<ArrayValidation>>,
-    title: &Option<String>,
+    title: Option<String>,
     name: String,
     description: String,
 ) -> SchemaResult<Value> {
@@ -249,8 +273,10 @@ fn get_array(
         }
         let start = range.start.unwrap_or_default();
         if array.len() >= start as usize
-            && !Confirm::new("Add item?")
-                .with_help_message(format!("{}{}", name, description).as_str())
+            && !Confirm::new("Add element?")
+                .with_help_message(
+                    format!("{}{}{}", get_title_str(&title), name, description).as_str(),
+                )
                 .prompt()?
         {
             break;
@@ -258,7 +284,7 @@ fn get_array(
 
         array.push(parse_schema(
             definitions,
-            title,
+            title.clone(),
             format!("{}.{}", name.clone(), i),
             object.clone(),
         )?);
@@ -269,7 +295,7 @@ fn get_array(
 fn get_object(
     definitions: &BTreeMap<String, Schema>,
     object_info: Option<Box<ObjectValidation>>,
-    title: &Option<String>,
+    title: Option<String>,
     _name: String,
     _description: String,
 ) -> SchemaResult<Value> {
@@ -282,7 +308,7 @@ fn get_object(
                             panic!("invalid schema");
                         };
 
-            let object = parse_schema(definitions, title, name.to_string(), schema_object)?;
+            let object = parse_schema(definitions, title.clone(), name.to_string(), schema_object)?;
             Ok((name, object))
         })
         .collect::<SchemaResult<Map<String, Value>>>()?;
@@ -311,6 +337,8 @@ mod tests {
         pub my_enum: Option<MyEnum>,
         /// This is an object.
         pub str_2: Option<MyStruct2>,
+        /// This is a vec of tuples.
+        pub vec_map: MyVecMap,
     }
 
     /// Doc comment on struct
@@ -352,15 +380,21 @@ mod tests {
         FlashLoanReceiver { execute: MyStruct2 },
     }
 
+    /// Doc comment on enum
+    #[derive(JsonSchema, Serialize, Deserialize, Debug)]
+    pub struct MyVecMap(Vec<(String, u32)>);
+
     #[test]
     fn test() {
         let root_schema = schema_for!(MyStruct);
         println!("{:#?}", &root_schema);
-        //println!("{:#?}", &root_schema.definitions);
-        let my_struct = TestEnum::interactive_parse().unwrap();
+        let my_struct = MyStruct::interactive_parse().unwrap();
         dbg!(my_struct);
+    }
 
-        //println!("{:?}", schema.definitions)
-        //println!("{:?}", schema.meta_schema)
+    #[test]
+    fn test_enum() {
+        let my_struct = MyEnum::interactive_parse().unwrap();
+        dbg!(my_struct);
     }
 }
