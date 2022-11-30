@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use error::SchemaResult;
+use error::{SchemaError, SchemaResult};
 use inquire::{Confirm, CustomType, Select, Text};
 use schemars::schema::{
     ArrayValidation, InstanceType, ObjectValidation, Schema, SchemaObject, SingleOrVec,
@@ -56,9 +56,7 @@ pub fn parse_schema(
             if let Some(reference) = schema.reference {
                 let reference = reference.strip_prefix("#/definitions/").unwrap();
                 let schema = definitions.get(reference).unwrap();
-                let Schema::Object(schema) = schema else {
-                    panic!("invalid schema");
-                };
+                let schema = get_schema_object_ref(schema)?;
                 parse_schema(
                     definitions,
                     Some(reference.to_string()),
@@ -164,9 +162,7 @@ fn get_subschema(
             )
             .prompt()?;
         let position = options.iter().position(|x| x == &option).unwrap();
-        let Schema::Object(object) = schema_vec[position].clone() else {
-                            panic!("invalid schema");
-                        };
+        let object = get_schema_object(schema_vec[position].clone())?;
         let title = update_title(title, &object);
         Ok(parse_schema(definitions, title, name, object)?)
     }
@@ -174,9 +170,7 @@ fn get_subschema(
     else if let Some(schema_vec) = subschema.all_of {
         let mut values = Vec::new();
         for schema in schema_vec {
-            let Schema::Object(object) = schema else {
-                            panic!("invalid schema");
-                        };
+            let object = get_schema_object(schema)?;
             let title = update_title(title.clone(), &object);
             values.push(parse_schema(
                 definitions,
@@ -263,9 +257,7 @@ fn get_array(
         SingleOrVec::Vec(vec) => vec,
     };
     for (i, schema) in schemas.into_iter().enumerate() {
-        let Schema::Object(object) = schema else {
-                                panic!("invalid schema");
-        };
+        let object = get_schema_object(schema)?;
         if let Some(end) = range.end {
             if array.len() == end as usize {
                 break;
@@ -304,10 +296,7 @@ fn get_object(
         .properties
         .into_iter()
         .map(|(name, schema)| {
-            let Schema::Object(schema_object) = schema else {
-                            panic!("invalid schema");
-                        };
-
+            let schema_object = get_schema_object(schema)?;
             let object = parse_schema(definitions, title.clone(), name.to_string(), schema_object)?;
             Ok((name, object))
         })
@@ -315,9 +304,23 @@ fn get_object(
     Ok(Value::Object(map))
 }
 
+fn get_schema_object(schema: Schema) -> SchemaResult<SchemaObject> {
+    match schema {
+        Schema::Bool(_) => Err(SchemaError::SchemaIsBool),
+        Schema::Object(object) => Ok(object),
+    }
+}
+
+fn get_schema_object_ref(schema: &Schema) -> SchemaResult<&SchemaObject> {
+    match schema {
+        Schema::Bool(_) => Err(SchemaError::SchemaIsBool),
+        Schema::Object(object) => Ok(object),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use schemars::{schema_for, JsonSchema};
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
     use crate::traits::InteractiveParseObj;
@@ -369,32 +372,17 @@ mod tests {
 
     /// Doc comment on enum
     #[derive(JsonSchema, Serialize, Deserialize, Debug)]
-    pub enum TestEnum {
-        /// Executes the price oracle contract
-        PriceOracle { execute: MyStruct },
-        /// Executes the interest model contract
-        InterestModel { execute: MyStruct2 },
-        /// Executes the market contract
-        Market { execute: MyStruct3 },
-        /// Executes the liquidation contract
-        FlashLoanReceiver { execute: MyStruct2 },
-    }
-
-    /// Doc comment on enum
-    #[derive(JsonSchema, Serialize, Deserialize, Debug)]
     pub struct MyVecMap(Vec<(String, u32)>);
 
     #[test]
     fn test() {
-        let root_schema = schema_for!(MyStruct);
-        println!("{:#?}", &root_schema);
-        let my_struct = MyStruct::interactive_parse().unwrap();
+        let my_struct = MyStruct::parse_to_obj().unwrap();
         dbg!(my_struct);
     }
 
     #[test]
     fn test_enum() {
-        let my_struct = MyEnum::interactive_parse().unwrap();
+        let my_struct = MyEnum::parse_to_obj().unwrap();
         dbg!(my_struct);
     }
 }
