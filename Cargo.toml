@@ -6,7 +6,7 @@ authors = ["Eric Woolsey<ewoolsey@ualberta.ca>"]
 license = "MIT"
 description = "A work in progress interactive parser for JsonSchema types."
 repository = "https://github.com/ewoolsey/interactive-parse"
-keywords = ["JsonSchema", "Schemars", "json", "serde", "parser", "interactive", "cli", "shell"]
+keywords = ["JsonSchema", "Schemars", "json", "parser", "interactive"]
 readme = "README.md"
 
 [lib]
