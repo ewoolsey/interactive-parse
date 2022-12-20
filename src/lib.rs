@@ -146,14 +146,10 @@ fn get_subschema(
             let Schema::Object(schema_object) = schema else {
                                 panic!("invalid schema");
                             };
-            let name = schema_object
-                .clone()
-                .object
-                .unwrap()
-                .properties
-                .pop_first()
-                .unwrap()
-                .0;
+            let name = match schema_object.clone().object {
+                Some(mut object) => object.properties.pop_first().unwrap().0,
+                None => "None".into(),
+            };
             options.push(name);
         }
         let option = Select::new("Select one:", options.clone())
