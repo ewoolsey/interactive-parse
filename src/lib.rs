@@ -147,7 +147,7 @@ fn get_subschema(
                                 panic!("invalid schema");
                             };
             let name = match schema_object.clone().object {
-                Some(mut object) => object.properties.pop_first().unwrap().0,
+                Some(object) => object.properties.into_iter().next().unwrap().0,
                 None => "None".into(),
             };
             options.push(name);
