@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use error::{SchemaError, SchemaResult};
 use inquire::{Confirm, CustomType, Select, Text};
-use log::trace;
+use log::debug;
 use schemars::schema::{
     ArrayValidation, InstanceType, ObjectValidation, Schema, SchemaObject, SingleOrVec,
     SubschemaValidation,
@@ -17,9 +17,9 @@ pub fn parse_schema(
     name: String,
     schema: SchemaObject,
 ) -> SchemaResult<Value> {
-    trace!("Entered parse_schema");
+    debug!("Entered parse_schema");
     let description = get_description(&schema);
-    trace!("description: {}", description);
+    debug!("description: {}", description);
     match schema.instance_type.clone() {
         Some(SingleOrVec::Single(instance_type)) => get_single_instance(
             definitions,
@@ -119,7 +119,7 @@ fn get_single_instance(
     name: String,
     description: String,
 ) -> SchemaResult<Value> {
-    trace!("Entered get_single_instance");
+    debug!("Entered get_single_instance");
     match *instance {
         InstanceType::String => get_string(name, description),
         InstanceType::Number => get_num(name, description),
@@ -142,6 +142,7 @@ fn get_subschema(
     subschema: Option<Box<SubschemaValidation>>,
     description: String,
 ) -> SchemaResult<Value> {
+    debug!("Entered get_subschema");
     let subschema = subschema.unwrap();
     // First we check the one_of field.
     if let Some(schema_vec) = subschema.one_of {
@@ -215,12 +216,14 @@ fn get_subschema(
 }
 
 fn get_int(name: String, description: String) -> SchemaResult<Value> {
+    debug!("Entered get_int");
     Ok(json!(CustomType::<i64>::new(name.as_str())
         .with_help_message(format!("int{description}").as_str())
         .prompt()?))
 }
 
 fn get_string(name: String, description: String) -> SchemaResult<Value> {
+    debug!("Entered get_string");
     Ok(Value::String(
         Text::new(name.as_str())
             .with_help_message(format!("string{description}").as_str())
@@ -229,12 +232,14 @@ fn get_string(name: String, description: String) -> SchemaResult<Value> {
 }
 
 fn get_num(name: String, description: String) -> SchemaResult<Value> {
+    debug!("Entered get_num");
     Ok(json!(CustomType::<f64>::new(name.as_str())
         .with_help_message(format!("num{description}").as_str())
         .prompt()?))
 }
 
 fn get_bool(name: String, description: String) -> SchemaResult<Value> {
+    debug!("Entered get_bool");
     Ok(json!(CustomType::<bool>::new(name.as_str())
         .with_help_message(format!("bool{description}").as_str())
         .prompt()?))
@@ -247,40 +252,74 @@ fn get_array(
     name: String,
     description: String,
 ) -> SchemaResult<Value> {
+    debug!("Entered get_array");
     let array_info = array_info.unwrap();
-    let mut array = Vec::new();
     let range = array_info.min_items..array_info.max_items;
-    let schemas = match array_info.items.unwrap() {
-        SingleOrVec::Single(single) => {
-            vec![*single]
-        }
-        SingleOrVec::Vec(vec) => vec,
-    };
-    for (i, schema) in schemas.into_iter().enumerate() {
-        let object = get_schema_object(schema)?;
-        if let Some(end) = range.end {
-            if array.len() == end as usize {
-                break;
+    debug!("array range: {range:?}");
+
+    let mut array = Vec::new();
+    match array_info.items.unwrap() {
+        SingleOrVec::Single(schema) => {
+            debug!("Single type array");
+            for i in 0.. {
+                if let Some(end) = range.end {
+                    if array.len() == end as usize {
+                        break;
+                    }
+                }
+
+                let start = range.start.unwrap_or_default();
+                if array.len() >= start as usize
+                    && !Confirm::new("Add element?")
+                        .with_help_message(
+                            format!("{}{}{}", get_title_str(&title), name, description).as_str(),
+                        )
+                        .prompt()?
+                {
+                    break;
+                }
+
+                let object = get_schema_object(*schema.clone())?;
+
+                array.push(parse_schema(
+                    definitions,
+                    title.clone(),
+                    format!("{}[{}]", name.clone(), i),
+                    object.clone(),
+                )?);
             }
         }
-        let start = range.start.unwrap_or_default();
-        if array.len() >= start as usize
-            && !Confirm::new("Add element?")
-                .with_help_message(
-                    format!("{}{}{}", get_title_str(&title), name, description).as_str(),
-                )
-                .prompt()?
-        {
-            break;
-        }
+        SingleOrVec::Vec(schemas) => {
+            debug!("Vec type array");
 
-        array.push(parse_schema(
-            definitions,
-            title.clone(),
-            format!("{}.{}", name.clone(), i),
-            object.clone(),
-        )?);
-    }
+            for (i, schema) in schemas.into_iter().enumerate() {
+                if let Some(end) = range.end {
+                    if array.len() == end as usize {
+                        break;
+                    }
+                }
+
+                let start = range.start.unwrap_or_default();
+                if array.len() >= start as usize
+                    && !Confirm::new("Add element?")
+                        .with_help_message(
+                            format!("{}{}{}", get_title_str(&title), name, description).as_str(),
+                        )
+                        .prompt()?
+                {
+                    break;
+                }
+                let object = get_schema_object(schema)?;
+
+                array.push(parse_schema(
+                    definitions,
+                    title.clone(),
+                    format!("{}.{}", name.clone(), i),
+                    object.clone(),
+                )?);
+            }
+        }
+    };
     Ok(Value::Array(array))
 }
 
@@ -291,6 +330,7 @@ fn get_object(
     _name: String,
     _description: String,
 ) -> SchemaResult<Value> {
+    debug!("Entered get_object");
     let map = object_info
         .unwrap()
         .properties
@@ -305,6 +345,7 @@ fn get_object(
 }
 
 fn get_schema_object(schema: Schema) -> SchemaResult<SchemaObject> {
+    debug!("Entered get_schema_object");
     match schema {
         Schema::Bool(_) => Err(SchemaError::SchemaIsBool),
         Schema::Object(object) => Ok(object),
@@ -312,6 +353,7 @@ fn get_schema_object(schema: Schema) -> SchemaResult<SchemaObject> {
 }
 
 fn get_schema_object_ref(schema: &Schema) -> SchemaResult<&SchemaObject> {
+    debug!("Entered get_schema_object_ref");
     match schema {
         Schema::Bool(_) => Err(SchemaError::SchemaIsBool),
         Schema::Object(object) => Ok(object),
@@ -377,7 +419,7 @@ mod tests {
 
     fn log_init() {
         let _ =
-            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace"))
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
                 .is_test(true)
                 .try_init();
         // let _ = env_logger::builder().is_test(true).try_init();
