@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use error::{SchemaError, SchemaResult};
 use inquire::{Confirm, CustomType, Select, Text};
+use log::trace;
 use schemars::schema::{
     ArrayValidation, InstanceType, ObjectValidation, Schema, SchemaObject, SingleOrVec,
     SubschemaValidation,
@@ -16,7 +17,9 @@ pub fn parse_schema(
     name: String,
     schema: SchemaObject,
 ) -> SchemaResult<Value> {
+    trace!("Entered parse_schema");
     let description = get_description(&schema);
+    trace!("description: {}", description);
     match schema.instance_type.clone() {
         Some(SingleOrVec::Single(instance_type)) => get_single_instance(
             definitions,
@@ -82,7 +85,7 @@ fn update_title(mut title: Option<String>, schema: &SchemaObject) -> Option<Stri
 fn get_title_str(title: &Option<String>) -> String {
     let mut title_str = String::new();
     if let Some(title) = title {
-        title_str.push_str(format!("<{}> ", title).as_str());
+        title_str.push_str(format!("<{title}> ").as_str());
     }
     title_str
 }
@@ -96,7 +99,7 @@ fn get_description(schema: &SchemaObject) -> String {
                     description.truncate(60);
                     description.push_str("...");
                 }
-                format!(": {}", description)
+                format!(": {description}")
             }
             None => String::default(),
         },
@@ -116,6 +119,7 @@ fn get_single_instance(
     name: String,
     description: String,
 ) -> SchemaResult<Value> {
+    trace!("Entered get_single_instance");
     match *instance {
         InstanceType::String => get_string(name, description),
         InstanceType::Number => get_num(name, description),
@@ -212,27 +216,27 @@ fn get_subschema(
 
 fn get_int(name: String, description: String) -> SchemaResult<Value> {
     Ok(json!(CustomType::<i64>::new(name.as_str())
-        .with_help_message(format!("int{}", description).as_str())
+        .with_help_message(format!("int{description}").as_str())
         .prompt()?))
 }
 
 fn get_string(name: String, description: String) -> SchemaResult<Value> {
     Ok(Value::String(
         Text::new(name.as_str())
-            .with_help_message(format!("string{}", description).as_str())
+            .with_help_message(format!("string{description}").as_str())
             .prompt()?,
     ))
 }
 
 fn get_num(name: String, description: String) -> SchemaResult<Value> {
     Ok(json!(CustomType::<f64>::new(name.as_str())
-        .with_help_message(format!("num{}", description).as_str())
+        .with_help_message(format!("num{description}").as_str())
         .prompt()?))
 }
 
 fn get_bool(name: String, description: String) -> SchemaResult<Value> {
     Ok(json!(CustomType::<bool>::new(name.as_str())
-        .with_help_message(format!("bool{}", description).as_str())
+        .with_help_message(format!("bool{description}").as_str())
         .prompt()?))
 }
 
@@ -366,19 +370,40 @@ mod tests {
         },
     }
 
-    /// Doc comment on enum
+    // This type is exiting early in the vec.
+    /// Doc comment on struct
     #[derive(JsonSchema, Serialize, Deserialize, Debug)]
     pub struct MyVecMap(Vec<(String, u32)>);
 
+    fn log_init() {
+        let _ =
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace"))
+                .is_test(true)
+                .try_init();
+        // let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[ignore]
     #[test]
     fn test() {
+        log_init();
         let my_struct = MyStruct::parse_to_obj().unwrap();
         dbg!(my_struct);
     }
 
+    #[ignore]
     #[test]
     fn test_enum() {
+        log_init();
         let my_struct = MyEnum::parse_to_obj().unwrap();
         dbg!(my_struct);
+    }
+
+    #[ignore]
+    #[test]
+    fn test_vec_map() {
+        log_init();
+        let my_vec_map = MyVecMap::parse_to_obj().unwrap();
+        dbg!(my_vec_map);
     }
 }

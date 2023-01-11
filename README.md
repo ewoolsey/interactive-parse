@@ -17,6 +17,7 @@ https://user-images.githubusercontent.com/8366997/198078221-5fa01e97-a921-4441-b
 ---
 
 ```rust
+    // Make sure you add these derives to your type
     #[derive(JsonSchema, Deserialize, Debug)]
     struct Git {
         subcommand: SubCommand,
@@ -33,8 +34,13 @@ https://user-images.githubusercontent.com/8366997/198078221-5fa01e97-a921-4441-b
         }
     }
 
+    // Bring the relevent traits into scope
+    use interactive_parse::traits::InteractiveParseObj;
+
+
     fn main() {
-        let git = Git::interactive_parse().unwrap();
+        // Parse the type to an object
+        let git = Git::parse_to_obj().unwrap();
         println!("{:?}", git);   
     }
 ```
