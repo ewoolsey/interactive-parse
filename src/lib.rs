@@ -11,7 +11,7 @@ use serde_json::{json, Map, Value};
 pub mod error;
 pub mod traits;
 
-pub fn parse_schema(
+pub(crate) fn parse_schema(
     definitions: &BTreeMap<String, Schema>,
     title: Option<String>,
     name: String,
@@ -151,9 +151,17 @@ fn get_subschema(
             let Schema::Object(schema_object) = schema else {
                                 panic!("invalid schema");
                             };
-            let name = match schema_object.clone().object {
-                Some(object) => object.properties.into_iter().next().unwrap().0,
-                None => "None".into(),
+            // debug!("schema: {schema:#?}");
+            let name = if let Some(object) = schema_object.clone().object {
+                object.properties.into_iter().next().unwrap().0
+            } else if let Some(enum_values) = schema_object.clone().enum_values {
+                if let Value::String(name) = enum_values.get(0).expect("invalid schema") {
+                    name.clone()
+                } else {
+                    panic!("invalid schema");
+                }
+            } else {
+                panic!("invalid schema")
             };
             options.push(name);
         }
@@ -163,9 +171,15 @@ fn get_subschema(
             )
             .prompt()?;
         let position = options.iter().position(|x| x == &option).unwrap();
-        let object = get_schema_object(schema_vec[position].clone())?;
-        let title = update_title(title, &object);
-        Ok(parse_schema(definitions, title, name, object)?)
+        let schema_object = get_schema_object(schema_vec[position].clone())?;
+        if schema_object.object.is_some() {
+            let title = update_title(title, &schema_object);
+            Ok(parse_schema(definitions, title, name, schema_object)?)
+        } else if let Some(enum_values) = schema_object.enum_values {
+            Ok(enum_values.get(0).expect("invalid schema").clone())
+        } else {
+            panic!("invalid schema")
+        }
     }
     // Next check the all_of field.
     else if let Some(schema_vec) = subschema.all_of {
@@ -403,8 +417,12 @@ mod tests {
     /// Doc comment on enum
     #[derive(JsonSchema, Serialize, Deserialize, Debug)]
     pub enum MyEnum {
+        /// This is a unit variant.
+        Unit,
+        /// This is a unit variant.
+        Unit2,
         /// This is a tuple variant.
-        StringNewType(Option<String>),
+        StringNewType(Option<String>, u32),
         /// This is a struct variant.
         StructVariant {
             /// This is a vec of floats.
@@ -422,7 +440,6 @@ mod tests {
             env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
                 .is_test(true)
                 .try_init();
-        // let _ = env_logger::builder().is_test(true).try_init();
     }
 
     #[ignore]
@@ -437,8 +454,8 @@ mod tests {
     #[test]
     fn test_enum() {
         log_init();
-        let my_struct = MyEnum::parse_to_obj().unwrap();
-        dbg!(my_struct);
+        let my_enum = MyEnum::parse_to_obj().unwrap();
+        dbg!(my_enum);
     }
 
     #[ignore]
