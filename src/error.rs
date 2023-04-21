@@ -6,11 +6,14 @@ pub type SchemaResult<T> = core::result::Result<T, SchemaError>;
 
 #[derive(Error, Debug)]
 pub enum SchemaError {
+    #[error(transparent)]
+    Inquire(#[from] InquireError),
+
     #[error("{0}")]
     Generic(String),
 
-    #[error("{0}")]
-    Inquire(#[from] InquireError),
+    #[error("Undo depth: {depth}")]
+    Undo { depth: u16 },
 
     #[error(
         "interactive-parse generated this json object: {}\n{}",

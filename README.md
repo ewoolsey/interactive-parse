@@ -1,6 +1,6 @@
 # interactive-parse
 
-**A work in progress parser for rust types that implement JsonSchema.
+**An interactive parser for JsonSchema types.
 
 ---
 
@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/8366997/198078221-5fa01e97-a921-4441-b
         }
     }
 
-    // Bring the relevent traits into scope
+    // Bring the relevant traits into scope
     use interactive_parse::traits::InteractiveParseObj;
 
 
@@ -50,6 +50,8 @@ https://user-images.githubusercontent.com/8366997/198078221-5fa01e97-a921-4441-b
 
 ---
 
-This is a basic approach at getting JsonSchema types to parse interactively using inquire. If you make improvements to this please submit a PR, and if you have any issues or bugs please submit an issue. I'm currently actively maintaining this project as a personal development tool.
+This is a simple approach at getting JsonSchema types to parse interactively using inquire. If you make improvements to this please submit a PR, and if you have any issues or bugs please submit an issue. I'm currently actively maintaining this project as a personal development tool.
+
+In particular, this crate needs proper error handling. In most cases the crate will panic if it encounters an issue parsing. This is not ideal and could definitely be improved.
 
 ---

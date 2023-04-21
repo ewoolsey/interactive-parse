@@ -1,8 +1,10 @@
+use std::sync::mpsc;
+
 use schemars::{schema_for, JsonSchema};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::{error::SchemaResult, parse_schema};
+use crate::{error::SchemaResult, listen_for_undo, parse_schema};
 
 pub trait InteractiveParseVal
 where
@@ -24,7 +26,20 @@ where
                 title = Some(title_ref.clone());
             }
         }
-        let value = parse_schema(&root_schema.definitions, title, name, root_schema.schema)?;
+
+        let (undo_tx, undo_rx) = mpsc::channel::<()>();
+
+        listen_for_undo(undo_tx);
+
+        let value = parse_schema(
+            &root_schema.definitions,
+            title,
+            name,
+            root_schema.schema,
+            0,
+            &undo_rx,
+        )?;
+
         Ok(value)
     }
 }

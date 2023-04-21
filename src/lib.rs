@@ -1,5 +1,12 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    fmt::Display,
+    sync::mpsc::{Receiver, Sender},
+    thread::{self, JoinHandle},
+    time::Duration,
+};
 
+use crossterm::event::{poll, read, Event, KeyCode, KeyModifiers};
 use error::{SchemaError, SchemaResult};
 use inquire::{Confirm, CustomType, Select, Text};
 use log::debug;
@@ -16,6 +23,36 @@ pub fn parse_schema(
     title: Option<String>,
     name: String,
     schema: SchemaObject,
+    current_depth: u16,
+    undo_rx: &Receiver<()>,
+) -> SchemaResult<Value> {
+    match parse_schema_inner(
+        definitions,
+        title.clone(),
+        name.clone(),
+        schema.clone(),
+        current_depth,
+        undo_rx,
+    ) {
+        Ok(value) => Ok(value),
+        Err(SchemaError::Undo { depth }) => {
+            if depth < current_depth + 1 && current_depth != 0 {
+                Err(SchemaError::Undo { depth })
+            } else {
+                parse_schema(definitions, title, name, schema, current_depth, undo_rx)
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub(crate) fn parse_schema_inner(
+    definitions: &BTreeMap<String, Schema>,
+    title: Option<String>,
+    name: String,
+    schema: SchemaObject,
+    current_depth: u16,
+    undo_rx: &Receiver<()>,
 ) -> SchemaResult<Value> {
     debug!("Entered parse_schema");
     let description = get_description(&schema);
@@ -30,10 +67,11 @@ pub fn parse_schema(
             title,
             name,
             description,
+            current_depth,
+            undo_rx,
         ),
         Some(SingleOrVec::Vec(vec)) => {
             // This usually represents an optional regular type
-            // Probably not a great assumption.
             let instance_type =
                 Box::new(vec.into_iter().find(|x| x != &InstanceType::Null).unwrap());
             if Confirm::new("Add optional value?")
@@ -49,6 +87,8 @@ pub fn parse_schema(
                     title,
                     name,
                     description,
+                    current_depth,
+                    undo_rx,
                 )
             } else {
                 Ok(Value::Null)
@@ -65,11 +105,21 @@ pub fn parse_schema(
                     Some(reference.to_string()),
                     name,
                     schema.clone(),
+                    current_depth,
+                    undo_rx,
                 )
             }
             // Or it could be a subschema
             else {
-                get_subschema(definitions, title, name, schema.subschemas, description)
+                get_subschema(
+                    definitions,
+                    title,
+                    name,
+                    schema.subschemas,
+                    description,
+                    current_depth,
+                    undo_rx,
+                )
             }
         }
     }
@@ -118,6 +168,8 @@ fn get_single_instance(
     title: Option<String>,
     name: String,
     description: String,
+    current_depth: u16,
+    undo_rx: &Receiver<()>,
 ) -> SchemaResult<Value> {
     debug!("Entered get_single_instance");
     match *instance {
@@ -125,12 +177,36 @@ fn get_single_instance(
         InstanceType::Number => get_num(name, description),
         InstanceType::Integer => get_int(name, description),
         InstanceType::Boolean => get_bool(name, description),
-        InstanceType::Array => get_array(definitions, array_info, title, name, description),
-        InstanceType::Object => get_object(definitions, object_info, title, name, description),
+        InstanceType::Array => get_array(
+            definitions,
+            array_info,
+            title,
+            name,
+            description,
+            current_depth,
+            undo_rx,
+        ),
+        InstanceType::Object => get_object(
+            definitions,
+            object_info,
+            title,
+            name,
+            description,
+            current_depth,
+            undo_rx,
+        ),
         InstanceType::Null => {
             // This represents an optional enum
             // Likely the subschema will have info here.
-            get_subschema(definitions, title, name, subschema, description)
+            get_subschema(
+                definitions,
+                title,
+                name,
+                subschema,
+                description,
+                current_depth,
+                undo_rx,
+            )
         }
     }
 }
@@ -141,6 +217,8 @@ fn get_subschema(
     name: String,
     subschema: Option<Box<SubschemaValidation>>,
     description: String,
+    current_depth: u16,
+    undo_rx: &Receiver<()>,
 ) -> SchemaResult<Value> {
     debug!("Entered get_subschema");
     let subschema = subschema.unwrap();
@@ -163,9 +241,22 @@ fn get_subschema(
             )
             .prompt()?;
         let position = options.iter().position(|x| x == &option).unwrap();
-        let object = get_schema_object(schema_vec[position].clone())?;
-        let title = update_title(title, &object);
-        Ok(parse_schema(definitions, title, name, object)?)
+        let schema_object = get_schema_object(schema_vec[position].clone())?;
+        if schema_object.object.is_some() {
+            let title = update_title(title, &schema_object);
+            Ok(parse_schema(
+                definitions,
+                title,
+                name,
+                schema_object,
+                current_depth,
+                undo_rx,
+            )?)
+        } else if let Some(enum_values) = schema_object.enum_values {
+            Ok(enum_values.get(0).expect("invalid schema").clone())
+        } else {
+            panic!("invalid schema")
+        }
     }
     // Next check the all_of field.
     else if let Some(schema_vec) = subschema.all_of {
@@ -178,6 +269,8 @@ fn get_subschema(
                 title.clone(),
                 name.clone(),
                 object,
+                current_depth,
+                undo_rx,
             )?)
         }
         match values.len() {
@@ -206,7 +299,7 @@ fn get_subschema(
             .with_help_message(format!("{}{}", get_title_str(&title), name).as_str())
             .prompt()?
         {
-            parse_schema(definitions, title, name, object)
+            parse_schema(definitions, title, name, object, current_depth, undo_rx)
         } else {
             Ok(Value::Null)
         }
@@ -251,6 +344,8 @@ fn get_array(
     title: Option<String>,
     name: String,
     description: String,
+    current_depth: u16,
+    undo_rx: &Receiver<()>,
 ) -> SchemaResult<Value> {
     debug!("Entered get_array");
     let array_info = array_info.unwrap();
@@ -286,6 +381,8 @@ fn get_array(
                     title.clone(),
                     format!("{}[{}]", name.clone(), i),
                     object.clone(),
+                    current_depth,
+                    undo_rx,
                 )?);
             }
         }
@@ -316,6 +413,8 @@ fn get_array(
                     title.clone(),
                     format!("{}.{}", name.clone(), i),
                     object.clone(),
+                    current_depth,
+                    undo_rx,
                 )?);
             }
         }
@@ -329,6 +428,8 @@ fn get_object(
     title: Option<String>,
     _name: String,
     _description: String,
+    current_depth: u16,
+    undo_rx: &Receiver<()>,
 ) -> SchemaResult<Value> {
     debug!("Entered get_object");
     let map = object_info
@@ -337,7 +438,14 @@ fn get_object(
         .into_iter()
         .map(|(name, schema)| {
             let schema_object = get_schema_object(schema)?;
-            let object = parse_schema(definitions, title.clone(), name.to_string(), schema_object)?;
+            let object = parse_schema(
+                definitions,
+                title.clone(),
+                name.to_string(),
+                schema_object,
+                current_depth,
+                undo_rx,
+            )?;
             Ok((name, object))
         })
         .collect::<SchemaResult<Map<String, Value>>>()?;
@@ -360,8 +468,118 @@ fn get_schema_object_ref(schema: &Schema) -> SchemaResult<&SchemaObject> {
     }
 }
 
+fn confirm(
+    name: String,
+    help_msg: Option<String>,
+    current_depth: &mut u16,
+    undo_rx: &Receiver<()>,
+) -> SchemaResult<bool> {
+    let handle = thread::spawn(move || {
+        let mut confirm = Confirm::new(name.as_str());
+        if let Some(ref help_msg) = help_msg {
+            confirm = confirm.with_help_message(help_msg);
+        }
+        confirm.prompt().unwrap()
+    });
+    wait_for_input(handle, current_depth, undo_rx)
+}
+
+fn text(
+    name: String,
+    help_msg: Option<String>,
+    current_depth: &mut u16,
+    undo_rx: &Receiver<()>,
+) -> SchemaResult<String> {
+    let handle = thread::spawn(move || {
+        let mut confirm = Text::new(name.as_str());
+        if let Some(ref help_msg) = help_msg {
+            confirm = confirm.with_help_message(help_msg);
+        }
+        confirm.prompt().unwrap()
+    });
+    wait_for_input(handle, current_depth, undo_rx)
+}
+
+fn select<T: Display + Send + 'static>(
+    name: String,
+    help_msg: Option<String>,
+    options: Vec<T>,
+    current_depth: &mut u16,
+    undo_rx: &Receiver<()>,
+) -> SchemaResult<T> {
+    let handle = thread::spawn(move || {
+        let mut confirm = Select::new(name.as_str(), options);
+        if let Some(ref help_msg) = help_msg {
+            confirm = confirm.with_help_message(help_msg);
+        }
+        confirm.prompt().unwrap()
+    });
+    wait_for_input(handle, current_depth, undo_rx)
+}
+
+fn wait_for_input<T>(
+    join_handle: JoinHandle<T>,
+    current_depth: &mut u16,
+    undo_rx: &Receiver<()>,
+) -> SchemaResult<T> {
+    loop {
+        if join_handle.is_finished() {
+            *current_depth += 1;
+            return Ok(join_handle.join().unwrap());
+        }
+        if undo_rx.try_recv().is_ok() {
+            return Err(SchemaError::Undo {
+                depth: *current_depth,
+            });
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn listen_for_undo(undo_tx: Sender<()>) {
+    thread::spawn(move || {
+        loop {
+            // Wait up to 1s for another event
+            if poll(Duration::from_millis(100)).unwrap() {
+                // It's guaranteed that read() wont block if `poll` returns `Ok(true)`
+                let event = read().unwrap();
+
+                println!("Event::{:?}\r", event);
+
+                if let Event::Key(key_event) = event {
+                    if key_event.code == KeyCode::Char('z')
+                        && key_event.modifiers == KeyModifiers::CONTROL
+                    {
+                        println!("Undoing last action\r");
+                        undo_tx.send(()).unwrap();
+                    }
+                }
+            }
+        }
+    });
+}
+
+// parse schema depth = 0
+// first prompt
+// depth + 1 = 1
+// parse schema depth = 1
+// second prompt (undo {})
+
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{stdout, Write},
+        time::Duration,
+    };
+
+    use crossterm::{
+        cursor::{position, MoveToPreviousLine},
+        event::{poll, read, Event, KeyCode},
+        queue,
+        terminal::{enable_raw_mode, Clear, ClearType},
+        Command,
+    };
+    use inquire::Text;
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -447,5 +665,54 @@ mod tests {
         log_init();
         let my_vec_map = MyVecMap::parse_to_obj().unwrap();
         dbg!(my_vec_map);
+    }
+
+    #[ignore]
+    #[test]
+    fn test_undo() {
+        enable_raw_mode().unwrap();
+
+        loop {
+            // Wait up to 1s for another event
+            if poll(Duration::from_millis(1_000)).unwrap() {
+                // It's guaranteed that read() wont block if `poll` returns `Ok(true)`
+                let event = read().unwrap();
+
+                println!("Event::{:?}\r", event);
+
+                if event == Event::Key(KeyCode::Char('c').into()) {
+                    println!("Cursor position: {:?}\r", position());
+                }
+
+                if event == Event::Key(KeyCode::Esc.into()) {
+                    break;
+                }
+            } else {
+                // Timeout expired, no event for 1s
+                println!(".\r");
+            }
+        }
+    }
+
+    #[ignore]
+    #[test]
+    fn test_skippable() {
+        Text::new("Enter a string")
+            .with_help_message("This is a help message")
+            .prompt_skippable()
+            .unwrap();
+        // Text::new("Enter a string")
+        //     .with_help_message("This is a help message")
+        //     .prompt_skippable()
+        //     .unwrap();
+        // println!("\r");
+        let mut stdout = stdout();
+        let _ = queue!(stdout, MoveToPreviousLine(1), Clear(ClearType::CurrentLine));
+        stdout.flush().unwrap();
+
+        // Text::new("Enter a string")
+        //     .with_help_message("This is a help message")
+        //     .prompt_skippable()
+        //     .unwrap();
     }
 }
