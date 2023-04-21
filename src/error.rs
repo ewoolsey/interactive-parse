@@ -15,6 +15,9 @@ pub enum SchemaError {
     #[error("Undo depth: {depth}")]
     Undo { depth: u16 },
 
+    #[error("User has exited the prompt")]
+    Exit,
+
     #[error(
         "interactive-parse generated this json object: {}\n{}",
         serde_json::to_string_pretty(&value).unwrap(),
