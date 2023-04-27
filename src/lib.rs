@@ -18,7 +18,7 @@ pub mod undo;
 
 pub use traits::*;
 
-pub fn parse_schema(
+pub(crate) fn parse_schema(
     definitions: &BTreeMap<String, Schema>,
     title: Option<String>,
     name: String,
@@ -222,9 +222,17 @@ fn get_subschema(
             let Schema::Object(schema_object) = schema else {
                                 panic!("invalid schema");
                             };
-            let name = match schema_object.clone().object {
-                Some(object) => object.properties.into_iter().next().unwrap().0,
-                None => "None".into(),
+            // debug!("schema: {schema:#?}");
+            let name = if let Some(object) = schema_object.clone().object {
+                object.properties.into_iter().next().unwrap().0
+            } else if let Some(enum_values) = schema_object.clone().enum_values {
+                if let Value::String(name) = enum_values.get(0).expect("invalid schema") {
+                    name.clone()
+                } else {
+                    panic!("invalid schema");
+                }
+            } else {
+                panic!("invalid schema")
             };
             options.push(name);
         }
@@ -511,8 +519,12 @@ mod tests {
     /// Doc comment on enum
     #[derive(JsonSchema, Serialize, Deserialize, Debug)]
     pub enum MyEnum {
+        /// This is a unit variant.
+        Unit,
+        /// This is a unit variant.
+        Unit2,
         /// This is a tuple variant.
-        StringNewType(Option<String>),
+        StringNewType(Option<String>, u32),
         /// This is a struct variant.
         StructVariant {
             /// This is a vec of floats.
