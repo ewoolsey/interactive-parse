@@ -1,6 +1,6 @@
 # interactive-parse
 
-**An interactive parser for JsonSchema types.
+**An interactive parser for JsonSchema types.**
 
 ---
 
@@ -8,7 +8,7 @@
 
 ---
 
-https://user-images.githubusercontent.com/8366997/198078221-5fa01e97-a921-4441-b054-f75f4d1ff272.mp4
+https://i.imgur.com/6vIAcbE.mp4
 
 ---
 
