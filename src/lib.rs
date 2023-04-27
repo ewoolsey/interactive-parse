@@ -1,14 +1,5 @@
-use std::{
-    cell::Cell,
-    collections::BTreeMap,
-    io::{stdout, Write},
-};
+use std::{cell::Cell, collections::BTreeMap};
 
-use crossterm::{
-    cursor::MoveToPreviousLine,
-    queue,
-    terminal::{Clear, ClearType},
-};
 use error::{SchemaError, SchemaResult};
 use inquire::{Confirm, CustomType, Select, Text};
 use log::debug;
@@ -17,8 +8,17 @@ use schemars::schema::{
     SubschemaValidation,
 };
 use serde_json::{json, Map, Value};
+use undo::clear_lines;
+
+use crate::undo::{RecurseIter, RecurseLoop, Undo};
+
 pub mod error;
 pub mod traits;
+pub mod undo;
+
+pub use traits::*;
+
+// pub use crate::traits;
 
 pub fn parse_schema(
     definitions: &BTreeMap<String, Schema>,
@@ -354,7 +354,7 @@ fn get_array(
     match array_info.items.unwrap() {
         SingleOrVec::Single(schema) => {
             debug!("Single type array");
-            array = recurse_loop(current_depth, 0, array.clone(), |i| {
+            array = (0..).recurse_iter(current_depth, |i| {
                 if let Some(end) = range.end {
                     if array.len() == end as usize {
                         return Ok(RecurseLoop::Return(None));
@@ -386,7 +386,7 @@ fn get_array(
         }
         SingleOrVec::Vec(schemas) => {
             debug!("Vec type array");
-            array = recurse_loop(current_depth, 0, array.clone(), |i| {
+            array = (0..).recurse_iter(current_depth, |i| {
                 if let Some(end) = range.end {
                     if i == end as usize {
                         return Ok(RecurseLoop::Return(None));
@@ -434,9 +434,9 @@ fn get_object(
     let map = object_info
         .unwrap()
         .properties
-        .into_iter()
-        .map(|(name, schema)| {
-            let schema_object = get_schema_object(schema)?;
+        .iter()
+        .recurse_iter(current_depth, |(name, schema)| {
+            let schema_object = get_schema_object(schema.clone())?;
             let object = parse_schema(
                 definitions,
                 title.clone(),
@@ -444,9 +444,11 @@ fn get_object(
                 schema_object,
                 current_depth,
             )?;
-            Ok((name, object))
-        })
-        .collect::<SchemaResult<Map<String, Value>>>()?;
+            Ok(RecurseLoop::Continue((name, object)))
+        })?
+        .into_iter()
+        .map(|(name, object)| (name.clone(), object))
+        .collect::<Map<String, Value>>();
     Ok(Value::Object(map))
 }
 
@@ -464,191 +466,6 @@ fn get_schema_object_ref(schema: &Schema) -> SchemaResult<&SchemaObject> {
         Schema::Bool(_) => Err(SchemaError::SchemaIsBool),
         Schema::Object(object) => Ok(object),
     }
-}
-
-trait Undo {
-    type Output;
-    fn undo(self, current_depth: &Cell<u16>) -> SchemaResult<Self::Output>;
-}
-
-impl<T> Undo for Option<T> {
-    type Output = T;
-    fn undo(self, current_depth: &Cell<u16>) -> SchemaResult<Self::Output> {
-        let current_depth_val = current_depth.get();
-        match self {
-            Some(value) => {
-                debug!("Depth {} -> {}", current_depth_val, current_depth_val + 1);
-                current_depth.set(current_depth_val + 1);
-                Ok(value)
-            }
-            None => {
-                debug!("Undo at depth {}", current_depth_val);
-                Err(SchemaError::Undo {
-                    depth: current_depth_val,
-                })
-            }
-        }
-    }
-}
-
-trait CatchUndo {
-    type Output;
-    fn catch_undo(self, current_depth: &Cell<u16>) -> SchemaResult<Self::Output>;
-}
-
-impl<T> CatchUndo for Result<T, SchemaError> {
-    type Output = T;
-    fn catch_undo(self, current_depth: &Cell<u16>) -> SchemaResult<Self::Output> {
-        let current_depth_val = current_depth.get();
-        match self {
-            Ok(value) => {
-                debug!("Depth {} -> {}", current_depth_val, current_depth_val + 1);
-                current_depth.set(current_depth_val + 1);
-                Ok(value)
-            }
-            Err(SchemaError::Undo { depth }) => {
-                debug!("Undo at depth {}", current_depth_val);
-                current_depth.set(depth);
-                Err(SchemaError::Undo { depth })
-            }
-            Err(err) => Err(err),
-        }
-    }
-}
-
-enum RecurseLoop<T> {
-    Continue(T),
-    Return(Option<T>),
-}
-
-fn recurse_loop<T: Clone, F: Clone + FnMut(usize) -> SchemaResult<RecurseLoop<T>>>(
-    current_depth: &Cell<u16>,
-    i: usize,
-    items: Vec<T>,
-    f: F,
-) -> SchemaResult<Vec<T>> {
-    fn recurse_inner<T: Clone, F: Clone + FnMut(usize) -> SchemaResult<RecurseLoop<T>>>(
-        current_depth: &Cell<u16>,
-        i: usize,
-        mut items: Vec<T>,
-        mut f: F,
-    ) -> SchemaResult<Vec<T>> {
-        match f(i) {
-            Ok(RecurseLoop::Continue(item)) => {
-                debug!("Recurse loop Continue i = {i}");
-                items.push(item);
-                recurse_loop(current_depth, i + 1, items, f)
-            }
-            Ok(RecurseLoop::Return(item)) => {
-                debug!("Recurse loop Return i = {i}");
-                if let Some(item) = item {
-                    items.push(item);
-                }
-                Ok(items)
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    let depth_checkpoint = current_depth.get();
-    debug!("Recurse loop at depth = {depth_checkpoint}, i = {i}");
-
-    match recurse_inner(current_depth, i, items.clone(), f.clone()) {
-        Err(SchemaError::Undo { depth }) => {
-            if depth > depth_checkpoint {
-                debug!("Recurse loop caught Undo i = {i}");
-                current_depth.set(depth_checkpoint);
-                clear_lines(depth - depth_checkpoint + 1);
-                recurse_loop(current_depth, i, items, f)
-            } else {
-                debug!("Recurse loop bubble up Undo i = {i}");
-                Err(SchemaError::Undo { depth })
-            }
-        }
-        other => other,
-    }
-}
-
-// fn recurse_loop_inner<T: Clone, F: FnMut(usize) -> SchemaResult<RecurseLoop<T>>>(
-//     i: usize,
-//     mut items: Vec<T>,
-//     current_depth: &Cell<u16>,
-//     mut f: F,
-// ) -> SchemaResult<RecurseLoop<Vec<T>>> {
-//     match f(i)? {
-//         RecurseLoop::Continue(item) => {
-//             debug!("Recurse loop Continue i = {i}");
-//             items.push(item);
-//             recurse_loop_inner(i + 1, items, current_depth, f)
-//         }
-//         RecurseLoop::Return(option) => {
-//             debug!("Recurse loop Return i = {i}");
-//             Ok(RecurseLoop::Return(item))
-//         }
-//         RecurseLoop::Revert { revert_i } => {
-//             if revert_i <= i {
-//                 debug!("Recurse loop Revert bubble up i = {i}");
-//                 Ok(RecurseLoop::Revert { revert_i })
-//             } else {
-//                 debug!("Recurse loop Revert caught i = {i}");
-//                 recurse_loop_inner(i + 1, item, f)
-//             }
-//         }
-//     }
-// }
-// fn catch_undo_retry<T, F: FnMut() -> SchemaResult<T>>(
-//     current_depth: &Cell<u16>,
-//     mut f: F,
-// ) -> SchemaResult<T> {
-//     let depth_checkpoint = current_depth.get();
-//     match f() {
-//         Ok(value) => Ok(value),
-//         Err(SchemaError::Undo { depth }) => {
-//             if depth <= depth_checkpoint && depth_checkpoint != 0 {
-//                 debug!("forwarding undo, depth: {depth}, depth_checkpoint: {depth_checkpoint}");
-//                 Err(SchemaError::Undo { depth })
-//             } else {
-//                 current_depth.set(depth_checkpoint);
-//                 clear_lines(depth - depth_checkpoint + 1);
-//                 f()
-//             }
-//         }
-//         Err(e) => Err(e),
-//     }
-// }
-
-// fn catch_undo<T, F: FnMut() -> SchemaResult<T>>(
-//     // current_depth: &Cell<u16>,
-//     mut f: F,
-// ) -> SchemaResult<T> {
-//     // let depth_checkpoint = current_depth.get();
-
-//     match f() {
-//         Ok(value) => Ok(value),
-//         Err(SchemaError::Undo { depth }) => {
-//             if depth <= depth_checkpoint && depth_checkpoint != 0 {
-//                 debug!("forwarding undo, depth: {depth}, depth_checkpoint: {depth_checkpoint}");
-//                 Err(SchemaError::Undo { depth })
-//             } else {
-//                 debug!("caught undo, depth: {depth}, depth_checkpoint: {depth_checkpoint}");
-//                 current_depth.set(depth_checkpoint);
-//                 clear_lines(depth - depth_checkpoint + 1);
-//                 f()
-//             }
-//         }
-//         Err(e) => Err(e),
-//     }
-// }
-
-fn clear_lines(n: u16) {
-    let mut stdout = stdout();
-    queue!(
-        stdout,
-        MoveToPreviousLine(n),
-        Clear(ClearType::FromCursorDown)
-    )
-    .unwrap();
-    stdout.flush().unwrap();
 }
 
 #[cfg(test)]
