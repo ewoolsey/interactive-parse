@@ -8,7 +8,7 @@
 
 ---
 
-https://i.imgur.com/6vIAcbE.mp4
+![](https://i.imgur.com/AVneDxD.gif)
 
 ---
 
