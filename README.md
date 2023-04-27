@@ -35,7 +35,7 @@
     }
 
     // Bring the relevant traits into scope
-    use interactive_parse::traits::InteractiveParseObj;
+    use interactive_parse::InteractiveParseObj;
 
 
     fn main() {

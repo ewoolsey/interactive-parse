@@ -18,8 +18,6 @@ pub mod undo;
 
 pub use traits::*;
 
-// pub use crate::traits;
-
 pub fn parse_schema(
     definitions: &BTreeMap<String, Schema>,
     title: Option<String>,
@@ -537,7 +535,7 @@ mod tests {
     #[ignore]
     #[test]
     fn test() {
-        // log_init();
+        log_init();
         let my_struct = MyStruct::parse_to_obj().unwrap();
         dbg!(my_struct);
     }
@@ -545,7 +543,7 @@ mod tests {
     #[ignore]
     #[test]
     fn test_enum() {
-        log_init();
+        // log_init();
         let my_struct = MyEnum::parse_to_obj().unwrap();
         dbg!(my_struct);
     }
