@@ -69,6 +69,4 @@ This is a simple approach at getting JsonSchema types to parse interactively usi
 
 In particular, this crate needs proper error handling. In most cases the crate will panic if it encounters an issue parsing. This is not ideal and could definitely be improved.
 
-In particular, this crate needs proper error handling. In most cases the crate will panic if it encounters an issue parsing. This is not ideal and should definitely be improved.
-
 ---
