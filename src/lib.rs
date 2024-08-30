@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::BTreeMap};
+use std::cell::Cell;
 
 use error::{SchemaError, SchemaResult};
 use inquire::{Confirm, CustomType, Select, Text};
@@ -19,7 +19,7 @@ pub mod undo;
 pub use traits::*;
 
 pub(crate) fn parse_schema(
-    definitions: &BTreeMap<String, Schema>,
+    definitions: &schemars::Map<String, Schema>,
     title: Option<String>,
     name: String,
     schema: SchemaObject,
@@ -49,7 +49,7 @@ pub(crate) fn parse_schema(
 }
 
 pub(crate) fn parse_schema_inner(
-    definitions: &BTreeMap<String, Schema>,
+    definitions: &schemars::Map<String, Schema>,
     title: Option<String>,
     name: String,
     schema: SchemaObject,
@@ -158,7 +158,7 @@ fn get_description(schema: &SchemaObject) -> String {
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::boxed_local)]
 fn get_single_instance(
-    definitions: &BTreeMap<String, Schema>,
+    definitions: &schemars::Map<String, Schema>,
     array_info: Option<Box<ArrayValidation>>,
     object_info: Option<Box<ObjectValidation>>,
     subschema: Option<Box<SubschemaValidation>>,
@@ -206,7 +206,7 @@ fn get_single_instance(
 }
 
 fn get_subschema(
-    definitions: &BTreeMap<String, Schema>,
+    definitions: &schemars::Map<String, Schema>,
     title: Option<String>,
     name: String,
     subschema: Option<Box<SubschemaValidation>>,
@@ -344,7 +344,7 @@ fn get_bool(name: String, description: String, current_depth: &Cell<u16>) -> Sch
 }
 
 fn get_array(
-    definitions: &BTreeMap<String, Schema>,
+    definitions: &schemars::Map<String, Schema>,
     array_info: Option<Box<ArrayValidation>>,
     title: Option<String>,
     name: String,
@@ -429,7 +429,7 @@ fn get_array(
 }
 
 fn get_object(
-    definitions: &BTreeMap<String, Schema>,
+    definitions: &schemars::Map<String, Schema>,
     object_info: Option<Box<ObjectValidation>>,
     title: Option<String>,
     _name: String,
