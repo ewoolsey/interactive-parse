@@ -37,30 +37,30 @@ impl<T> Undo for Option<T> {
     }
 }
 
-pub(crate) trait CatchUndo {
-    type Output;
-    fn catch_undo(self, current_depth: &Cell<u16>) -> SchemaResult<Self::Output>;
-}
+// pub(crate) trait CatchUndo {
+//     type Output;
+//     fn catch_undo(self, current_depth: &Cell<u16>) -> SchemaResult<Self::Output>;
+// }
 
-impl<T> CatchUndo for Result<T, SchemaError> {
-    type Output = T;
-    fn catch_undo(self, current_depth: &Cell<u16>) -> SchemaResult<Self::Output> {
-        let current_depth_val = current_depth.get();
-        match self {
-            Ok(value) => {
-                debug!("Depth {} -> {}", current_depth_val, current_depth_val + 1);
-                current_depth.set(current_depth_val + 1);
-                Ok(value)
-            }
-            Err(SchemaError::Undo { depth }) => {
-                debug!("Undo at depth {}", current_depth_val);
-                current_depth.set(depth);
-                Err(SchemaError::Undo { depth })
-            }
-            Err(err) => Err(err),
-        }
-    }
-}
+// impl<T> CatchUndo for Result<T, SchemaError> {
+//     type Output = T;
+//     fn catch_undo(self, current_depth: &Cell<u16>) -> SchemaResult<Self::Output> {
+//         let current_depth_val = current_depth.get();
+//         match self {
+//             Ok(value) => {
+//                 debug!("Depth {} -> {}", current_depth_val, current_depth_val + 1);
+//                 current_depth.set(current_depth_val + 1);
+//                 Ok(value)
+//             }
+//             Err(SchemaError::Undo { depth }) => {
+//                 debug!("Undo at depth {}", current_depth_val);
+//                 current_depth.set(depth);
+//                 Err(SchemaError::Undo { depth })
+//             }
+//             Err(err) => Err(err),
+//         }
+//     }
+// }
 
 pub(crate) trait RecurseIter<T, U>
 where

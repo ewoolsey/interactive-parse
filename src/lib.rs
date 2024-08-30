@@ -220,13 +220,13 @@ fn get_subschema(
         let mut options = Vec::new();
         for schema in &schema_vec {
             let Schema::Object(schema_object) = schema else {
-                                panic!("invalid schema");
-                            };
+                panic!("invalid schema");
+            };
             // debug!("schema: {schema:#?}");
             let name = if let Some(object) = schema_object.clone().object {
                 object.properties.into_iter().next().unwrap().0
             } else if let Some(enum_values) = schema_object.clone().enum_values {
-                if let Value::String(name) = enum_values.get(0).expect("invalid schema") {
+                if let Value::String(name) = enum_values.first().expect("invalid schema") {
                     name.clone()
                 } else {
                     panic!("invalid schema");
@@ -254,7 +254,7 @@ fn get_subschema(
                 current_depth,
             )?)
         } else if let Some(enum_values) = schema_object.enum_values {
-            Ok(enum_values.get(0).expect("invalid schema").clone())
+            Ok(enum_values.first().expect("invalid schema").clone())
         } else {
             panic!("invalid schema")
         }
@@ -285,14 +285,14 @@ fn get_subschema(
             .into_iter()
             .find(|x| {
                 let Schema::Object(object) = x else {
-                            panic!("invalid schema");
-                        };
+                    panic!("invalid schema");
+                };
                 object.instance_type != Some(SingleOrVec::Single(Box::new(InstanceType::Null)))
             })
             .unwrap();
         let Schema::Object(object) = non_null else {
-                            panic!("invalid schema");
-                        };
+            panic!("invalid schema");
+        };
         let title = update_title(title, &object);
 
         if Confirm::new("Add optional value?")

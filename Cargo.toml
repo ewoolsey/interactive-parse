@@ -17,9 +17,10 @@ schemars = "0.8"
 serde_json = "1"
 serde = { version = "1", default-features = false }
 thiserror = "1"
-inquire = "0.6"
-crossterm = "0.26"
+inquire = "0.7"
+crossterm = "0.28"
 log = "0.4"
 
 [dev-dependencies]
-env_logger = "0.10"
+env_logger = "0.11"
+
